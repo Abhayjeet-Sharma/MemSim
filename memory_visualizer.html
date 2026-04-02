@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemSim — Dynamic Memory Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060810;
+    --surface: #0d1117;
+    --panel: #111827;
+    --border: #1e2d3d;
+    --accent: #00f5c4;
+    --accent2: #ff6b35;
+    --accent3: #7c3aed;
+    --accent4: #facc15;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --hit: #00f5c4;
+    --miss: #ff6b35;
+    --free: #1e2d3d;
+    --allocated: #0f3460;
+    --glow: 0 0 20px rgba(0,245,196,0.3);
+    --glow2: 0 0 20px rgba(255,107,53,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline effect */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,245,196,0.015) 2px,
+      rgba(0,245,196,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: linear-gradient(90deg, var(--surface), transparent);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 900;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    letter-spacing: 2px;
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .tagline {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .header-stats {
+    margin-left: auto;
+    display: flex;
+    gap: 24px;
+  }
+
+  .stat-pill {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .stat-pill .val {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .stat-pill.green .val { color: var(--accent); text-shadow: var(--glow); }
+  .stat-pill.orange .val { color: var(--accent2); text-shadow: var(--glow2); }
+  .stat-pill.purple .val { color: var(--accent3); }
+  .stat-pill.yellow .val { color: var(--accent4); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 0;
+    height: calc(100vh - 73px);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .section-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+
+  .tab-group {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    background: var(--bg);
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .tab {
+    flex: 1;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .tab.active {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+
+  .tab:not(.active):hover {
+    color: var(--accent);
+    background: rgba(0,245,196,0.05);
+  }
+
+  .form-group {
+    margin-bottom: 12px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  input[type="number"], input[type="text"], select, textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem;
+    padding: 8px 12px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,245,196,0.1);
+  }
+
+  select option { background: var(--panel); }
+
+  textarea { resize: vertical; min-height: 70px; font-size: 0.8rem; }
+
+  .btn {
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 4px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    box-shadow: var(--glow);
+  }
+
+  .btn-primary:hover {
+    background: #00ddb0;
+    box-shadow: 0 0 30px rgba(0,245,196,0.5);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent2);
+    border: 1px solid var(--accent2);
+    margin-top: 8px;
+  }
+
+  .btn-secondary:hover {
+    background: rgba(255,107,53,0.1);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+  }
+
+  .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+
+  .algo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .algo-btn {
+    padding: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    text-align: center;
+  }
+
+  .algo-btn.active {
+    border-color: var(--accent3);
+    color: var(--accent3);
+    background: rgba(124,58,237,0.1);
+    box-shadow: 0 0 10px rgba(124,58,237,0.2);
+  }
+
+  .algo-btn:hover:not(.active) { border-color: var(--muted); color: var(--text); }
+
+  /* MAIN AREA */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .viz-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0 20px;
+  }
+
+  .viz-tab {
+    padding: 14px 20px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .viz-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .viz-tab:hover:not(.active) { color: var(--text); }
+
+  .viz-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: none;
+  }
+
+  .viz-content.active { display: block; }
+  .viz-content::-webkit-scrollbar { width: 4px; }
+  .viz-content::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* PHYSICAL MEMORY GRID */
+  .memory-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .memory-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    font-size: 0.65rem;
+    color: var(--muted);
+  }
+
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+  }
+
+  .mem-grid {
+    display: grid;
+    gap: 3px;
+    margin-bottom: 24px;
+  }
+
+  .mem-frame {
+    height: 40px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    transition: all 0.3s ease;
+    border: 1px solid transparent;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .mem-frame::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px;
+    height: 100%;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .mem-frame.occupied::before { opacity: 1; }
+
+  .mem-frame.free {
+    background: var(--free);
+    border-color: var(--border);
+    color: var(--muted);
+  }
+
+  .mem-frame.occupied {
+    background: linear-gradient(90deg, rgba(0,245,196,0.08), transparent);
+    border-color: rgba(0,245,196,0.3);
+    color: var(--text);
+  }
+
+  .mem-frame.fault-flash {
+    animation: faultFlash 0.5s ease;
+  }
+
+  .mem-frame.hit-flash {
+    animation: hitFlash 0.4s ease;
+  }
+
+  @keyframes faultFlash {
+    0% { background: rgba(255,107,53,0.4); border-color: var(--accent2); }
+    100% { background: linear-gradient(90deg, rgba(0,245,196,0.08), transparent); }
+  }
+
+  @keyframes hitFlash {
+    0% { background: rgba(0,245,196,0.4); }
+    100% { background: linear-gradient(90deg, rgba(0,245,196,0.08), transparent); }
+  }
+
+  .frame-id {
+    color: var(--muted);
+    font-size: 0.65rem;
+    min-width: 40px;
+  }
+
+  .frame-page {
+    font-weight: 700;
+    font-size: 0.85rem;
+    min-width: 40px;
+  }
+
+  .frame-pid {
+    color: var(--accent3);
+    font-size: 0.7rem;
+  }
+
+  .frame-age {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.65rem;
+  }
+
+  /* PAGE TABLE */
+  .page-table-container {
+    overflow-x: auto;
+    margin-bottom: 24px;
+  }
+
+  .pt-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+  }
+
+  .pt-table th {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    color: var(--accent);
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    text-align: left;
+  }
+
+  .pt-table td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .pt-table tr:hover td { background: var(--panel); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .badge-valid { background: rgba(0,245,196,0.15); color: var(--accent); border: 1px solid rgba(0,245,196,0.3); }
+  .badge-invalid { background: rgba(255,107,53,0.15); color: var(--accent2); border: 1px solid rgba(255,107,53,0.3); }
+  .badge-dirty { background: rgba(250,204,21,0.15); color: var(--accent4); border: 1px solid rgba(250,204,21,0.3); }
+
+  /* REFERENCE STRING VISUALIZATION */
+  .ref-track {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .ref-chip {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    transition: all 0.3s;
+    position: relative;
+  }
+
+  .ref-chip.current {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,245,196,0.1);
+    box-shadow: var(--glow);
+    transform: scale(1.15);
+    z-index: 2;
+  }
+
+  .ref-chip.hit-done {
+    border-color: rgba(0,245,196,0.4);
+    color: var(--accent);
+    background: rgba(0,245,196,0.05);
+  }
+
+  .ref-chip.fault-done {
+    border-color: rgba(255,107,53,0.4);
+    color: var(--accent2);
+    background: rgba(255,107,53,0.05);
+  }
+
+  /* STEP LOG */
+  .step-log {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .step-log::-webkit-scrollbar { width: 3px; }
+  .step-log::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .log-entry {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.72rem;
+    animation: slideIn 0.2s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .log-entry.hit { border-left: 3px solid var(--accent); }
+  .log-entry.fault { border-left: 3px solid var(--accent2); }
+
+  .log-step {
+    color: var(--muted);
+    font-size: 0.65rem;
+    min-width: 30px;
+  }
+
+  .log-type {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+
+  .log-type.hit { background: rgba(0,245,196,0.15); color: var(--accent); }
+  .log-type.fault { background: rgba(255,107,53,0.15); color: var(--accent2); }
+
+  /* SEGMENTATION VIEW */
+  .seg-bar {
+    width: 100%;
+    height: 70px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .seg-piece {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-family: 'Share Tech Mono', monospace;
+    transition: all 0.4s;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+
+  .seg-piece:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  /* CONTROL BAR */
+  .control-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .ctrl-btn {
+    padding: 8px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ctrl-btn.running { border-color: var(--accent2); color: var(--accent2); }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .speed-control input[type="range"] {
+    width: 80px;
+    accent-color: var(--accent);
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+
+  /* CHARTS */
+  .chart-area {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  .chart-title {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  canvas {
+    display: block;
+    width: 100% !important;
+  }
+
+  /* Fault ratio donut */
+  .fault-donut-wrap {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .donut-labels { display: flex; flex-direction: column; gap: 8px; }
+
+  .donut-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+  }
+
+  .donut-swatch { width: 12px; height: 12px; border-radius: 2px; }
+
+  /* Process rows */
+  .process-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .process-row {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.75rem;
+  }
+
+  .proc-color { width: 10px; height: 10px; border-radius: 50%; }
+  .proc-name { min-width: 80px; font-weight: 700; }
+  .proc-bar-wrap { flex: 1; background: var(--bg); height: 6px; border-radius: 3px; overflow: hidden; }
+  .proc-bar { height: 100%; border-radius: 3px; transition: width 0.4s; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+
+  .empty-icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.3; }
+  .empty-title { font-family: 'Orbitron', sans-serif; font-size: 0.85rem; margin-bottom: 8px; }
+  .empty-sub { font-size: 0.7rem; }
+
+  /* Address Translation Section */
+  .addr-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+  }
+
+  .addr-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .addr-label { color: var(--muted); min-width: 140px; font-size: 0.7rem; }
+  .addr-val { color: var(--accent); }
+  .addr-arrow { color: var(--accent3); font-size: 1rem; }
+
+  /* Tooltip */
+  [title] { cursor: help; }
+
+  .info-inline {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background: var(--border);
+    border-radius: 50%;
+    text-align: center;
+    line-height: 14px;
+    font-size: 0.6rem;
+    color: var(--muted);
+    cursor: help;
+    margin-left: 4px;
+  }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">Mem<span>Sim</span></div>
+    <div class="tagline">Dynamic Memory Management Visualizer</div>
+  </div>
+  <div class="header-stats">
+    <div class="stat-pill green">
+      <span class="val" id="stat-hits">0</span>
+      <span>HITS</span>
+    </div>
+    <div class="stat-pill orange">
+      <span class="val" id="stat-faults">0</span>
+      <span>FAULTS</span>
+    </div>
+    <div class="stat-pill purple">
+      <span class="val" id="stat-ratio">—</span>
+      <span>HIT RATIO</span>
+    </div>
+    <div class="stat-pill yellow">
+      <span class="val" id="stat-step">0</span>
+      <span>STEP</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Mode Tabs -->
+    <div>
+      <div class="section-label">Mode</div>
+      <div class="tab-group">
+        <button class="tab active" onclick="switchMode('paging')">Paging</button>
+        <button class="tab" onclick="switchMode('segmentation')">Segments</button>
+        <button class="tab" onclick="switchMode('virtual')">Virtual</button>
+      </div>
+    </div>
+
+    <!-- Memory Config -->
+    <div class="card">
+      <div class="section-label">Memory Config</div>
+      <div class="form-group">
+        <label>Physical Frames</label>
+        <input type="number" id="cfg-frames" value="4" min="1" max="16">
+      </div>
+      <div class="form-group" id="pg-size-group">
+        <label>Page Size (bytes)</label>
+        <input type="number" id="cfg-pagesize" value="256" min="64" max="4096" step="64">
+      </div>
+      <div class="form-group" id="total-mem-group" style="display:none">
+        <label>Total Memory (KB)</label>
+        <input type="number" id="cfg-totalmem" value="64" min="16" max="256" step="16">
+      </div>
+    </div>
+
+    <!-- Replacement Algorithm -->
+    <div class="card" id="algo-card">
+      <div class="section-label">Replacement Algorithm</div>
+      <div class="algo-grid">
+        <button class="algo-btn active" onclick="setAlgo('FIFO')">FIFO</button>
+        <button class="algo-btn" onclick="setAlgo('LRU')">LRU</button>
+        <button class="algo-btn" onclick="setAlgo('OPTIMAL')">Optimal</button>
+        <button class="algo-btn" onclick="setAlgo('CLOCK')">Clock</button>
+      </div>
+      <div style="font-size:0.65rem;color:var(--muted);line-height:1.5" id="algo-desc">
+        First-In First-Out: replaces the oldest page in memory, regardless of usage frequency.
+      </div>
+    </div>
+
+    <!-- Reference String -->
+    <div class="card">
+      <div class="section-label">Reference String</div>
+      <div class="form-group">
+        <label>Page References (comma or space separated)</label>
+        <textarea id="ref-string" placeholder="e.g. 1 2 3 4 1 2 5 1 2 3 4 5">7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1</textarea>
+      </div>
+      <button class="btn btn-ghost" style="margin-bottom:8px;font-size:0.65rem" onclick="generateRandom()">⟳ Random (12 refs)</button>
+    </div>
+
+    <!-- Segmentation (shown in seg mode) -->
+    <div class="card" id="seg-card" style="display:none">
+      <div class="section-label">Segments</div>
+      <div id="seg-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+      <button class="btn btn-ghost" style="font-size:0.65rem" onclick="addSegment()">+ Add Segment</button>
+    </div>
+
+    <!-- Processes -->
+    <div class="card">
+      <div class="section-label">Processes</div>
+      <div id="proc-list-sidebar" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+      <button class="btn btn-ghost" style="font-size:0.65rem" onclick="addProcess()">+ Add Process</button>
+    </div>
+
+    <button class="btn btn-primary" onclick="initSimulation()">⬡ INITIALIZE SIM</button>
+    <button class="btn btn-secondary" onclick="resetAll()">↺ RESET</button>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- Viz tabs -->
+    <div class="viz-tabs">
+      <button class="viz-tab active" onclick="switchVizTab('memory')">Memory View</button>
+      <button class="viz-tab" onclick="switchVizTab('pagetable')">Page Table</button>
+      <button class="viz-tab" onclick="switchVizTab('address')">Addr Translation</button>
+      <button class="viz-tab" onclick="switchVizTab('stats')">Analytics</button>
+    </div>
+
+    <!-- MEMORY VIEW -->
+    <div class="viz-content active" id="tab-memory">
+      <div class="control-bar">
+        <button class="ctrl-btn" id="btn-prev" onclick="stepBack()" disabled>◀ Prev</button>
+        <button class="ctrl-btn" id="btn-next" onclick="stepForward()" disabled>Next ▶</button>
+        <button class="ctrl-btn" id="btn-run" onclick="toggleAutoRun()" disabled>▶ Auto Run</button>
+        <button class="ctrl-btn" onclick="jumpToEnd()" id="btn-end" disabled>⏭ To End</button>
+        <div class="speed-control">
+          Speed: <input type="range" id="speed-slider" min="1" max="10" value="5"> <span id="speed-label">5x</span>
+        </div>
+      </div>
+
+      <!-- Reference String Track -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="section-label">Reference String</div>
+        <div class="ref-track" id="ref-track"></div>
+      </div>
+
+      <!-- Frame Grid & Log -->
+      <div class="grid-2">
+        <div>
+          <div class="memory-header">
+            <div class="memory-title">Physical Memory — <span id="frame-count-label">4</span> Frames</div>
+            <div class="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:rgba(0,245,196,0.5)"></div>Occupied</div>
+              <div class="legend-item"><div class="legend-dot" style="background:var(--free)"></div>Free</div>
+            </div>
+          </div>
+          <div class="mem-grid" id="mem-grid" style="grid-template-columns:1fr"></div>
+        </div>
+        <div>
+          <div class="memory-header">
+            <div class="memory-title">Event Log</div>
+          </div>
+          <div class="step-log" id="step-log">
+            <div class="empty-state">
+              <div class="empty-icon">◫</div>
+              <div class="empty-title">No Events Yet</div>
+              <div class="empty-sub">Initialize and step through the simulation</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Segmentation Bar (shown in seg mode) -->
+      <div id="seg-view" style="display:none;margin-top:20px">
+        <div class="memory-header"><div class="memory-title">Segment Map</div></div>
+        <div class="seg-bar" id="seg-bar"></div>
+        <div class="chart-area">
+          <div class="chart-title">Segment Table</div>
+          <table class="pt-table" id="seg-table">
+            <thead><tr><th>Name</th><th>Base</th><th>Limit</th><th>Size</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE TABLE -->
+    <div class="viz-content" id="tab-pagetable">
+      <div class="chart-area">
+        <div class="chart-title">Page Table — All Processes</div>
+        <div class="page-table-container">
+          <table class="pt-table" id="page-table">
+            <thead>
+              <tr>
+                <th>Process</th>
+                <th>Virtual Page #</th>
+                <th>Frame #</th>
+                <th>Valid</th>
+                <th>Dirty</th>
+                <th>Referenced</th>
+                <th>Access Count</th>
+                <th>Last Used</th>
+              </tr>
+            </thead>
+            <tbody id="pt-body">
+              <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">Initialize simulation to view page table</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="chart-area">
+        <div class="chart-title">TLB (Translation Lookaside Buffer)</div>
+        <table class="pt-table" id="tlb-table">
+          <thead><tr><th>Entry</th><th>VPN</th><th>PFN</th><th>Valid</th><th>Process</th></tr></thead>
+          <tbody id="tlb-body">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">TLB empty</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ADDRESS TRANSLATION -->
+    <div class="viz-content" id="tab-address">
+      <div class="grid-2">
+        <div>
+          <div class="card" style="margin-bottom:20px">
+            <div class="section-label">Virtual Address</div>
+            <div class="form-group">
+              <label>Virtual Address (decimal or hex)</label>
+              <input type="text" id="vaddr-input" placeholder="e.g. 512 or 0x200" oninput="translateAddress()">
+            </div>
+            <div class="form-group">
+              <label>Process</label>
+              <select id="vaddr-proc" onchange="translateAddress()"><option>P1</option></select>
+            </div>
+          </div>
+          <div class="addr-box" id="addr-result">
+            <div style="color:var(--muted);font-size:0.7rem">Enter a virtual address above to see translation</div>
+          </div>
+        </div>
+        <div>
+          <div class="chart-area">
+            <div class="chart-title">Address Space Layout</div>
+            <canvas id="addr-canvas" height="300"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="chart-area" style="margin-top:20px">
+        <div class="chart-title">Translation Process</div>
+        <div id="translation-steps" style="font-size:0.75rem;color:var(--muted);padding:10px">
+          The virtual address is split into: <strong style="color:var(--accent)">Virtual Page Number (VPN)</strong> + <strong style="color:var(--accent2)">Page Offset</strong><br><br>
+          VPN is used to index into the page table → get Physical Frame Number (PFN)<br>
+          Physical Address = PFN × PageSize + Offset
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALYTICS -->
+    <div class="viz-content" id="tab-stats">
+      <div class="grid-2">
+        <div class="chart-area">
+          <div class="chart-title">Page Faults Over Time</div>
+          <canvas id="fault-chart" height="200"></canvas>
+        </div>
+        <div class="chart-area">
+          <div class="chart-title">Hit / Fault Ratio</div>
+          <div class="fault-donut-wrap">
+            <canvas id="donut-chart" width="140" height="140" style="width:140px;min-width:140px"></canvas>
+            <div class="donut-labels">
+              <div class="donut-label">
+                <div class="donut-swatch" style="background:var(--accent)"></div>
+                <div>
+                  <div>Page Hits</div>
+                  <div style="color:var(--accent);font-family:'Orbitron',sans-serif;font-size:0.9rem" id="donut-hits-val">0</div>
+                </div>
+              </div>
+              <div class="donut-label">
+                <div class="donut-swatch" style="background:var(--accent2)"></div>
+                <div>
+                  <div>Page Faults</div>
+                  <div style="color:var(--accent2);font-family:'Orbitron',sans-serif;font-size:0.9rem" id="donut-faults-val">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-area">
+        <div class="chart-title">Algorithm Comparison (same reference string)</div>
+        <canvas id="compare-chart" height="180"></canvas>
+      </div>
+      <div class="chart-area">
+        <div class="chart-title">Process Memory Usage</div>
+        <div class="process-list" id="proc-usage"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================
+// STATE
+// ============================
+let mode = 'paging';
+let algo = 'FIFO';
+let frames = 4;
+let pageSize = 256;
+let refString = [7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1];
+let processes = [{id:'P1',color:'#00f5c4'},{id:'P2',color:'#7c3aed'}];
+let segments = [{name:'Code',size:200,color:'#00f5c4'},{name:'Data',size:150,color:'#7c3aed'},{name:'Stack',size:100,color:'#ff6b35'}];
+
+let simState = null;
+let currentStep = -1;
+let autoRunTimer = null;
+let isRunning = false;
+
+const algoDescs = {
+  FIFO: 'First-In First-Out: replaces the oldest page in memory, regardless of usage frequency.',
+  LRU: 'Least Recently Used: replaces the page that has not been used for the longest time.',
+  OPTIMAL: 'Optimal: replaces the page that will not be used for the longest time in the future (theoretical best).',
+  CLOCK: 'Clock (Second Chance): FIFO with a reference bit; pages with ref=1 get a second chance.'
+};
+
+// ============================
+// UI HELPERS
+// ============================
+function switchMode(m) {
+  mode = m;
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['paging','segmentation','virtual'][i] === m);
+  });
+  document.getElementById('seg-card').style.display = m === 'segmentation' ? '' : 'none';
+  document.getElementById('algo-card').style.display = m === 'segmentation' ? 'none' : '';
+  document.getElementById('pg-size-group').style.display = m === 'segmentation' ? 'none' : '';
+  document.getElementById('total-mem-group').style.display = m === 'virtual' ? '' : 'none';
+  if (m === 'segmentation') renderSegmentSidebar();
+  resetAll(false);
+}
+
+function switchVizTab(t) {
+  document.querySelectorAll('.viz-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.viz-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t === 'stats') renderCharts();
+  if (t === 'address') renderAddrCanvas();
+}
+
+function setAlgo(a) {
+  algo = a;
+  document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('algo-desc').textContent = algoDescs[a];
+}
+
+function generateRandom() {
+  const refs = [];
+  for (let i = 0; i < 14; i++) refs.push(Math.floor(Math.random() * 8));
+  document.getElementById('ref-string').value = refs.join(' ');
+}
+
+function addProcess() {
+  const colors = ['#00f5c4','#7c3aed','#ff6b35','#facc15','#3b82f6','#ec4899'];
+  const id = 'P' + (processes.length + 1);
+  processes.push({id, color: colors[processes.length % colors.length]});
+  renderProcessSidebar();
+}
+
+function renderProcessSidebar() {
+  const el = document.getElementById('proc-list-sidebar');
+  el.innerHTML = processes.map((p,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:4px">
+      <div style="width:10px;height:10px;border-radius:50%;background:${p.color};flex-shrink:0"></div>
+      <span style="font-size:0.75rem;flex:1">${p.id}</span>
+      ${processes.length > 1 ? `<button onclick="removeProcess(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.8rem">×</button>` : ''}
+    </div>
+  `).join('');
+  // Update addr proc select
+  const sel = document.getElementById('vaddr-proc');
+  sel.innerHTML = processes.map(p => `<option>${p.id}</option>`).join('');
+}
+
+function removeProcess(i) {
+  if (processes.length <= 1) return;
+  processes.splice(i, 1);
+  renderProcessSidebar();
+}
+
+function addSegment() {
+  const colors = ['#00f5c4','#7c3aed','#ff6b35','#facc15','#3b82f6'];
+  segments.push({name:'Seg'+segments.length, size:80+Math.floor(Math.random()*100), color:colors[segments.length%colors.length]});
+  renderSegmentSidebar();
+}
+
+function renderSegmentSidebar() {
+  const el = document.getElementById('seg-list');
+  el.innerHTML = segments.map((s,i) => `
+    <div style="display:flex;align-items:center;gap:6px">
+      <div style="width:8px;height:8px;border-radius:2px;background:${s.color};flex-shrink:0"></div>
+      <input type="text" value="${s.name}" style="flex:1;min-width:0" onchange="segments[${i}].name=this.value">
+      <input type="number" value="${s.size}" style="width:60px" onchange="segments[${i}].size=+this.value">
+      ${segments.length>1?`<button onclick="segments.splice(${i},1);renderSegmentSidebar()" style="background:none;border:none;color:var(--muted);cursor:pointer">×</button>`:''}
+    </div>
+  `).join('');
+}
+
+// ============================
+// SIMULATION CORE
+// ============================
+function parseRefString() {
+  const raw = document.getElementById('ref-string').value;
+  return raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+}
+
+function initSimulation() {
+  frames = +document.getElementById('cfg-frames').value;
+  pageSize = +document.getElementById('cfg-pagesize').value || 256;
+  refString = parseRefString();
+
+  if (!refString.length) { alert('Enter a valid reference string'); return; }
+
+  document.getElementById('frame-count-label').textContent = frames;
+
+  // Build all steps
+  simState = buildSimSteps(refString, frames, algo);
+  currentStep = -1;
+
+  // Render ref track
+  renderRefTrack();
+
+  // Init memory grid
+  renderMemGrid(new Array(frames).fill(null), -1, -1);
+
+  // Init page table
+  initPageTable();
+
+  // Enable controls
+  ['btn-next','btn-run','btn-end'].forEach(id => document.getElementById(id).disabled = false);
+  document.getElementById('btn-prev').disabled = true;
+
+  // Segmentation
+  if (mode === 'segmentation') {
+    document.getElementById('seg-view').style.display = '';
+    renderSegmentView();
+  } else {
+    document.getElementById('seg-view').style.display = 'none';
+  }
+
+  // Clear log
+  document.getElementById('step-log').innerHTML = '';
+
+  // Reset stats
+  updateStats(0, 0, 0);
+}
+
+function buildSimSteps(refs, nFrames, algo) {
+  const steps = [];
+  let memory = new Array(nFrames).fill(null);
+  let queue = []; // FIFO order
+  let clock = 0;
+  let refBits = new Array(nFrames).fill(0);
+  let clockPtr = 0;
+
+  // For OPTIMAL: precompute future uses
+  const futureUse = (page, idx) => {
+    for (let i = idx+1; i < refs.length; i++) if (refs[i] === page) return i;
+    return Infinity;
+  };
+
+  for (let i = 0; i < refs.length; i++) {
+    const page = refs[i];
+    const frameIdx = memory.indexOf(page);
+    const hit = frameIdx !== -1;
+    let evicted = null;
+    let targetFrame = -1;
+
+    if (hit) {
+      targetFrame = frameIdx;
+      if (algo === 'LRU') {
+        // Update LRU order
+        queue = queue.filter(p => p !== page);
+        queue.push(page);
+      }
+      if (algo === 'CLOCK') refBits[frameIdx] = 1;
+    } else {
+      const freeIdx = memory.indexOf(null);
+      if (freeIdx !== -1) {
+        targetFrame = freeIdx;
+        memory[targetFrame] = page;
+        queue.push(page);
+        if (algo === 'CLOCK') { refBits[targetFrame] = 1; }
+      } else {
+        // Need replacement
+        if (algo === 'FIFO') {
+          const oldest = queue.shift();
+          targetFrame = memory.indexOf(oldest);
+          evicted = oldest;
+          memory[targetFrame] = page;
+          queue.push(page);
+        } else if (algo === 'LRU') {
+          const lru = queue.shift();
+          targetFrame = memory.indexOf(lru);
+          evicted = lru;
+          memory[targetFrame] = page;
+          queue.push(page);
+        } else if (algo === 'OPTIMAL') {
+          let maxFuture = -1, optFrame = 0;
+          for (let f = 0; f < nFrames; f++) {
+            const fu = futureUse(memory[f], i);
+            if (fu > maxFuture) { maxFuture = fu; optFrame = f; }
+          }
+          evicted = memory[optFrame];
+          targetFrame = optFrame;
+          const qIdx = queue.indexOf(evicted);
+          if (qIdx !== -1) queue.splice(qIdx, 1);
+          memory[targetFrame] = page;
+          queue.push(page);
+        } else if (algo === 'CLOCK') {
+          while (true) {
+            if (refBits[clockPtr] === 0) {
+              evicted = memory[clockPtr];
+              targetFrame = clockPtr;
+              memory[clockPtr] = page;
+              refBits[clockPtr] = 1;
+              clockPtr = (clockPtr+1) % nFrames;
+              break;
+            } else {
+              refBits[clockPtr] = 0;
+              clockPtr = (clockPtr+1) % nFrames;
+            }
+          }
+          const qIdx = queue.indexOf(evicted);
+          if (qIdx !== -1) queue.splice(qIdx, 1);
+          queue.push(page);
+        }
+      }
+    }
+
+    steps.push({
+      step: i,
+      page,
+      hit,
+      evicted,
+      targetFrame,
+      memory: [...memory],
+      refBits: [...refBits],
+      clockPtr,
+    });
+  }
+  return steps;
+}
+
+// ============================
+// STEP NAVIGATION
+// ============================
+function stepForward() {
+  if (!simState || currentStep >= simState.length-1) return;
+  currentStep++;
+  applyStep(currentStep);
+}
+
+function stepBack() {
+  if (currentStep <= 0) return;
+  currentStep--;
+  applyStep(currentStep);
+}
+
+function jumpToEnd() {
+  if (!simState) return;
+  currentStep = simState.length - 1;
+  applyStep(currentStep);
+}
+
+function applyStep(idx) {
+  const s = simState[idx];
+  renderRefTrack(idx);
+  renderMemGrid(s.memory, s.targetFrame, s.hit ? 1 : 0);
+  addLogEntry(s);
+  updateStats(
+    simState.slice(0,idx+1).filter(s=>s.hit).length,
+    simState.slice(0,idx+1).filter(s=>!s.hit).length,
+    idx+1
+  );
+  updatePageTable(s);
+  updateTLB(s);
+
+  document.getElementById('btn-prev').disabled = idx === 0;
+  document.getElementById('btn-next').disabled = idx === simState.length-1;
+  document.getElementById('btn-end').disabled = idx === simState.length-1;
+}
+
+function toggleAutoRun() {
+  if (isRunning) {
+    clearInterval(autoRunTimer);
+    isRunning = false;
+    document.getElementById('btn-run').textContent = '▶ Auto Run';
+    document.getElementById('btn-run').classList.remove('running');
+  } else {
+    isRunning = true;
+    document.getElementById('btn-run').textContent = '⏸ Pause';
+    document.getElementById('btn-run').classList.add('running');
+    const speed = +document.getElementById('speed-slider').value;
+    const delay = Math.round(1600 / speed);
+    autoRunTimer = setInterval(() => {
+      if (currentStep >= simState.length-1) {
+        toggleAutoRun();
+        return;
+      }
+      stepForward();
+    }, delay);
+  }
+}
+
+document.getElementById('speed-slider').addEventListener('input', function() {
+  document.getElementById('speed-label').textContent = this.value + 'x';
+  if (isRunning) { toggleAutoRun(); toggleAutoRun(); }
+});
+
+// ============================
+// RENDERING
+// ============================
+function renderRefTrack(current = -1) {
+  const el = document.getElementById('ref-track');
+  el.innerHTML = refString.map((p,i) => {
+    let cls = '';
+    if (i < current) cls = simState[i].hit ? 'hit-done' : 'fault-done';
+    else if (i === current) cls = 'current';
+    return `<div class="ref-chip ${cls}">${p}</div>`;
+  }).join('');
+}
+
+function renderMemGrid(memory, highlighted, isHit) {
+  const el = document.getElementById('mem-grid');
+  el.style.gridTemplateColumns = `repeat(${Math.min(frames,4)}, 1fr)`;
+  el.innerHTML = memory.map((page, i) => {
+    const occupied = page !== null;
+    let flashClass = '';
+    if (i === highlighted && occupied) {
+      flashClass = isHit === 1 ? 'hit-flash' : 'fault-flash';
+    }
+    const procIdx = occupied ? Math.abs(page) % processes.length : 0;
+    const proc = processes[procIdx];
+    return `
+      <div class="mem-frame ${occupied?'occupied':'free'} ${flashClass}">
+        <span class="frame-id">F${i}</span>
+        ${occupied ? `
+          <span class="frame-page" style="color:${proc.color}">${page}</span>
+          <span class="frame-pid">${proc.id}</span>
+          <span class="frame-age" title="Frame index">#${i}</span>
+        ` : `<span style="color:var(--border)">—— empty ——</span>`}
+      </div>
+    `;
+  }).join('');
+}
+
+function addLogEntry(s) {
+  const log = document.getElementById('step-log');
+  // Remove empty state
+  const empty = log.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${s.hit?'hit':'fault'}`;
+  entry.innerHTML = `
+    <span class="log-step">#${s.step+1}</span>
+    <span class="log-type ${s.hit?'hit':'fault'}">${s.hit?'HIT':'FAULT'}</span>
+    <span>Page <strong style="color:var(--text)">${s.page}</strong></span>
+    ${!s.hit && s.evicted !== null ? `<span style="color:var(--muted);font-size:0.65rem">→ evicted P${s.evicted}</span>` : ''}
+    ${!s.hit && s.evicted === null ? `<span style="color:var(--muted);font-size:0.65rem">→ loaded to free frame</span>` : ''}
+    <span style="margin-left:auto;color:var(--muted);font-size:0.65rem">F${s.targetFrame}</span>
+  `;
+  log.prepend(entry);
+}
+
+function updateStats(hits, faults, step) {
+  document.getElementById('stat-hits').textContent = hits;
+  document.getElementById('stat-faults').textContent = faults;
+  const total = hits + faults;
+  document.getElementById('stat-ratio').textContent = total ? (hits/total*100).toFixed(0)+'%' : '—';
+  document.getElementById('stat-step').textContent = step;
+}
+
+// ============================
+// PAGE TABLE
+// ============================
+let pageTableData = {};
+let tlbData = [];
+
+function initPageTable() {
+  pageTableData = {};
+  tlbData = [];
+  processes.forEach(p => {
+    pageTableData[p.id] = {};
+  });
+  renderPageTable();
+  renderTLB();
+}
+
+function updatePageTable(s) {
+  const procIdx = Math.abs(s.page) % processes.length;
+  const proc = processes[procIdx];
+  if (!pageTableData[proc.id]) pageTableData[proc.id] = {};
+  if (!pageTableData[proc.id][s.page]) {
+    pageTableData[proc.id][s.page] = {vpn: s.page, frame: null, valid: false, dirty: false, ref: 0, lastUsed: 0, count: 0};
+  }
+  const entry = pageTableData[proc.id][s.page];
+  if (!s.hit) {
+    entry.frame = s.targetFrame;
+    entry.valid = true;
+    entry.dirty = Math.random() > 0.6;
+  }
+  entry.ref++;
+  entry.count++;
+  entry.lastUsed = s.step;
+
+  // Invalidate evicted page
+  if (s.evicted !== null) {
+    processes.forEach(p => {
+      if (pageTableData[p.id][s.evicted]) {
+        pageTableData[p.id][s.evicted].valid = false;
+        pageTableData[p.id][s.evicted].frame = null;
+      }
+    });
+  }
+
+  // TLB update
+  const tlbEntry = {vpn: s.page, pfn: s.targetFrame, valid: true, proc: proc.id};
+  tlbData = tlbData.filter(e => !(e.vpn === s.page && e.proc === proc.id));
+  tlbData.unshift(tlbEntry);
+  if (tlbData.length > 4) tlbData.pop();
+
+  renderPageTable();
+  renderTLB();
+}
+
+function renderPageTable() {
+  const tbody = document.getElementById('pt-body');
+  const rows = [];
+  processes.forEach(p => {
+    Object.values(pageTableData[p.id] || {}).forEach(e => {
+      rows.push(`
+        <tr>
+          <td style="color:${p.color}">${p.id}</td>
+          <td>${e.vpn}</td>
+          <td>${e.frame !== null ? e.frame : '—'}</td>
+          <td><span class="badge ${e.valid?'badge-valid':'badge-invalid'}">${e.valid?'VALID':'INVALID'}</span></td>
+          <td>${e.dirty ? '<span class="badge badge-dirty">DIRTY</span>' : '—'}</td>
+          <td>${e.ref > 0 ? '✓' : '—'}</td>
+          <td>${e.count}</td>
+          <td>${e.lastUsed}</td>
+        </tr>
+      `);
+    });
+  });
+  tbody.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No pages loaded yet</td></tr>';
+}
+
+function renderTLB() {
+  const tbody = document.getElementById('tlb-body');
+  if (!tlbData.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">TLB empty</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tlbData.map((e,i) => `
+    <tr>
+      <td>${i}</td>
+      <td>${e.vpn}</td>
+      <td>${e.pfn}</td>
+      <td><span class="badge badge-valid">VALID</span></td>
+      <td style="color:${processes.find(p=>p.id===e.proc)?.color||'var(--text)'}">${e.proc}</td>
+    </tr>
+  `).join('');
+}
+
+// ============================
+// ADDRESS TRANSLATION
+// ============================
+function translateAddress() {
+  const raw = document.getElementById('vaddr-input').value.trim();
+  if (!raw) return;
+  let addr = raw.startsWith('0x') ? parseInt(raw,16) : parseInt(raw);
+  if (isNaN(addr)) return;
+
+  const vpn = Math.floor(addr / pageSize);
+  const offset = addr % pageSize;
+  const proc = document.getElementById('vaddr-proc').value;
+
+  const ptEntry = pageTableData[proc] && pageTableData[proc][vpn];
+  const tlbHit = tlbData.find(e => e.vpn === vpn && e.proc === proc);
+
+  let physAddr = '—';
+  let status = 'PAGE FAULT';
+  let statusColor = 'var(--accent2)';
+
+  if (tlbHit) {
+    physAddr = tlbHit.pfn * pageSize + offset;
+    status = 'TLB HIT';
+    statusColor = 'var(--accent)';
+  } else if (ptEntry && ptEntry.valid) {
+    physAddr = ptEntry.frame * pageSize + offset;
+    status = 'PAGE TABLE HIT';
+    statusColor = 'var(--accent4)';
+  }
+
+  const bits = Math.ceil(Math.log2(pageSize));
+  document.getElementById('addr-result').innerHTML = `
+    <div class="addr-line">
+      <span class="addr-label">Virtual Address</span>
+      <span class="addr-val">0x${addr.toString(16).toUpperCase().padStart(4,'0')} (${addr})</span>
+    </div>
+    <div class="addr-line">
+      <span class="addr-label">Page Size</span>
+      <span class="addr-val">${pageSize} bytes (${bits} offset bits)</span>
+    </div>
+    <div class="addr-line">
+      <span class="addr-label">Virtual Page Number</span>
+      <span class="addr-val" style="color:var(--accent3)">${vpn}</span>
+    </div>
+    <div class="addr-line">
+      <span class="addr-label">Page Offset</span>
+      <span class="addr-val" style="color:var(--accent2)">${offset}</span>
+    </div>
+    <div style="margin:8px 0;border-top:1px solid var(--border)"></div>
+    <div class="addr-line">
+      <span class="addr-label">Status</span>
+      <span style="color:${statusColor};font-family:'Orbitron',sans-serif;font-size:0.7rem">${status}</span>
+    </div>
+    <div class="addr-line">
+      <span class="addr-label">Physical Address</span>
+      <span class="addr-val" style="color:var(--accent);font-size:1rem">${typeof physAddr === 'number' ? '0x'+physAddr.toString(16).toUpperCase().padStart(4,'0')+' ('+physAddr+')' : '—'}</span>
+    </div>
+    ${ptEntry?.frame != null ? `
+    <div class="addr-line">
+      <span class="addr-label">Frame #</span>
+      <span class="addr-val">${ptEntry.frame}</span>
+    </div>` : ''}
+  `;
+  renderAddrCanvas(vpn, offset);
+}
+
+function renderAddrCanvas(vpn=-1, offset=-1) {
+  const canvas = document.getElementById('addr-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio || 400;
+  canvas.height = 300 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  const W = canvas.offsetWidth, H = 300;
+  ctx.clearRect(0,0,W,H);
+
+  // Draw address space boxes
+  const totalPages = Math.max(8, vpn+2);
+  const boxH = Math.min(30, (H - 40) / totalPages);
+
+  ctx.font = '11px Share Tech Mono, monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('Virtual Address Space', 10, 20);
+
+  for (let i = 0; i < totalPages; i++) {
+    const y = 30 + i * boxH;
+    const isActive = i === vpn;
+    ctx.fillStyle = isActive ? 'rgba(0,245,196,0.2)' : '#111827';
+    ctx.strokeStyle = isActive ? '#00f5c4' : '#1e2d3d';
+    ctx.lineWidth = isActive ? 2 : 1;
+    ctx.beginPath();
+    ctx.rect(10, y, W/2 - 20, boxH - 2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = isActive ? '#00f5c4' : '#64748b';
+    ctx.fillText(`P${i}`, 16, y + boxH - 8);
+  }
+
+  // Physical frames
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('Physical Memory', W/2 + 10, 20);
+  for (let i = 0; i < frames; i++) {
+    const y = 30 + i * boxH;
+    const ptEntry = Object.values(pageTableData).flatMap(p => Object.values(p)).find(e => e.frame === i && e.valid);
+    const isTarget = ptEntry && ptEntry.vpn === vpn;
+    ctx.fillStyle = ptEntry ? (isTarget ? 'rgba(0,245,196,0.25)' : 'rgba(124,58,237,0.1)') : '#0d1117';
+    ctx.strokeStyle = isTarget ? '#00f5c4' : (ptEntry ? '#7c3aed' : '#1e2d3d');
+    ctx.lineWidth = isTarget ? 2 : 1;
+    ctx.beginPath();
+    ctx.rect(W/2 + 10, y, W/2 - 20, boxH - 2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = isTarget ? '#00f5c4' : (ptEntry ? '#7c3aed' : '#64748b');
+    ctx.fillText(`F${i}${ptEntry ? ' P'+ptEntry.vpn : ''}`, W/2 + 16, y + boxH - 8);
+  }
+
+  // Arrow
+  if (vpn >= 0) {
+    const ptEntry = Object.values(pageTableData).flatMap(p => Object.values(p)).find(e => e.vpn === vpn && e.valid);
+    if (ptEntry && ptEntry.frame !== null) {
+      const sy = 30 + vpn * boxH + boxH/2;
+      const ey = 30 + ptEntry.frame * boxH + boxH/2;
+      ctx.beginPath();
+      ctx.strokeStyle = '#00f5c4';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4,2]);
+      ctx.moveTo(W/2 - 10, sy);
+      ctx.lineTo(W/2 + 10, ey);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+}
+
+// ============================
+// SEGMENTATION
+// ============================
+function renderSegmentView() {
+  const bar = document.getElementById('seg-bar');
+  const totalSize = segments.reduce((a,s) => a+s.size, 0);
+  bar.innerHTML = segments.map(s => {
+    const pct = (s.size / totalSize * 100).toFixed(1);
+    return `<div class="seg-piece" style="width:${pct}%;background:${s.color}22;border-right:2px solid ${s.color};color:${s.color}" data-tooltip="${s.name}: ${s.size}B">
+      ${pct > 8 ? `<span>${s.name}<br><span style="font-size:0.6rem;opacity:0.7">${s.size}B</span></span>` : ''}
+    </div>`;
+  }).join('');
+
+  let base = 0;
+  const tbody = document.querySelector('#seg-table tbody');
+  tbody.innerHTML = segments.map(s => {
+    const row = `<tr>
+      <td style="color:${s.color}">${s.name}</td>
+      <td>${base}</td>
+      <td>${base + s.size - 1}</td>
+      <td>${s.size}B</td>
+      <td><span class="badge badge-valid">LOADED</span></td>
+    </tr>`;
+    base += s.size;
+    return row;
+  }).join('');
+}
+
+// ============================
+// ANALYTICS CHARTS
+// ============================
+function renderCharts() {
+  renderFaultChart();
+  renderDonut();
+  renderCompareChart();
+  renderProcessUsage();
+}
+
+function renderFaultChart() {
+  const canvas = document.getElementById('fault-chart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * (window.devicePixelRatio||1);
+  canvas.height = 200 * (window.devicePixelRatio||1);
+  ctx.scale(window.devicePixelRatio||1, window.devicePixelRatio||1);
+  const W = canvas.offsetWidth, H = 200;
+  ctx.clearRect(0,0,W,H);
+
+  if (!simState || currentStep < 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('Run simulation to see data', W/2, H/2);
+    return;
+  }
+
+  const steps = simState.slice(0, currentStep+1);
+  let faultCount = 0;
+  const faults = steps.map(s => { if (!s.hit) faultCount++; return faultCount; });
+
+  const maxF = Math.max(...faults, 1);
+  const pad = {l:40,r:20,t:10,b:30};
+  const w = W - pad.l - pad.r, h = H - pad.t - pad.b;
+
+  // Grid
+  ctx.strokeStyle = '#1e2d3d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + h - (i/4)*h;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W-pad.r, y); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '9px Share Tech Mono'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(i/4*maxF), pad.l-5, y+3);
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#ff6b35';
+  ctx.lineWidth = 2;
+  faults.forEach((f, i) => {
+    const x = pad.l + (i/(faults.length-1||1))*w;
+    const y = pad.t + h - (f/maxF)*h;
+    i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  // Fill
+  ctx.lineTo(pad.l + w, pad.t+h);
+  ctx.lineTo(pad.l, pad.t+h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,107,53,0.1)';
+  ctx.fill();
+
+  // Axis label
+  ctx.fillStyle = '#64748b'; ctx.textAlign = 'center';
+  ctx.fillText('Step →', W/2, H-5);
+}
+
+function renderDonut() {
+  const canvas = document.getElementById('donut-chart');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,140,140);
+
+  const hits = simState ? simState.slice(0,currentStep+1).filter(s=>s.hit).length : 0;
+  const faults = simState ? simState.slice(0,currentStep+1).filter(s=>!s.hit).length : 0;
+  const total = hits + faults;
+
+  document.getElementById('donut-hits-val').textContent = hits;
+  document.getElementById('donut-faults-val').textContent = faults;
+
+  const cx = 70, cy = 70, r = 50, ri = 30;
+  if (!total) {
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle = '#1e2d3d'; ctx.lineWidth = 20; ctx.stroke();
+    return;
+  }
+  const hAngle = (hits/total) * Math.PI*2;
+  const start = -Math.PI/2;
+
+  [[hAngle,'#00f5c4'],[Math.PI*2-hAngle,'#ff6b35']].reduce((acc, [angle, color]) => {
+    ctx.beginPath();
+    ctx.arc(cx,cy,r,acc,acc+angle);
+    ctx.strokeStyle = color; ctx.lineWidth = 20; ctx.stroke();
+    return acc+angle;
+  }, start);
+
+  ctx.fillStyle = '#060810'; ctx.beginPath(); ctx.arc(cx,cy,ri,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 14px Orbitron,sans-serif'; ctx.textAlign='center';
+  ctx.fillText(total ? (hits/total*100).toFixed(0)+'%' : '—', cx, cy+5);
+}
+
+function renderCompareChart() {
+  const canvas = document.getElementById('compare-chart');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * (window.devicePixelRatio||1);
+  canvas.height = 180 * (window.devicePixelRatio||1);
+  ctx.scale(window.devicePixelRatio||1, window.devicePixelRatio||1);
+  const W = canvas.offsetWidth, H = 180;
+  ctx.clearRect(0,0,W,H);
+
+  const algos = ['FIFO','LRU','OPTIMAL','CLOCK'];
+  const colors = ['#00f5c4','#7c3aed','#ff6b35','#facc15'];
+  const results = algos.map(a => {
+    const steps = buildSimSteps(refString, frames, a);
+    return steps.filter(s=>!s.hit).length;
+  });
+  const maxR = Math.max(...results, 1);
+
+  const barW = (W - 60) / algos.length - 10;
+  const pad = {l:40,r:20,t:10,b:40};
+  const h = H - pad.t - pad.b;
+
+  results.forEach((r,i) => {
+    const x = pad.l + i*(barW+10);
+    const barH = (r/maxR)*h;
+    const y = pad.t + h - barH;
+
+    ctx.fillStyle = colors[i]+'33';
+    ctx.strokeStyle = colors[i];
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.rect(x, y, barW, barH);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = colors[i];
+    ctx.font = 'bold 12px Orbitron,sans-serif'; ctx.textAlign='center';
+    ctx.fillText(r, x+barW/2, y-5);
+
+    ctx.fillStyle = '#64748b'; ctx.font = '9px Share Tech Mono';
+    ctx.fillText(algos[i], x+barW/2, H-5);
+
+    if (algo === algos[i]) {
+      ctx.strokeStyle = colors[i];
+      ctx.lineWidth = 2;
+      ctx.setLineDash([2,2]);
+      ctx.beginPath(); ctx.rect(x-2,y-2,barW+4,barH+4); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  ctx.fillStyle = '#64748b'; ctx.font = '9px Share Tech Mono'; ctx.textAlign='right';
+  for (let i=0;i<=4;i++) {
+    const y = pad.t + h - (i/4)*h;
+    ctx.fillText(Math.round(i/4*maxR), pad.l-5, y+3);
+    ctx.strokeStyle='#1e2d3d'; ctx.lineWidth=1; ctx.beginPath();
+    ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+  }
+}
+
+function renderProcessUsage() {
+  const el = document.getElementById('proc-usage');
+  if (!simState || currentStep < 0) { el.innerHTML = '<div style="color:var(--muted);font-size:0.7rem;padding:10px">No data yet</div>'; return; }
+
+  const steps = simState.slice(0, currentStep+1);
+  el.innerHTML = processes.map(p => {
+    const pages = steps.filter((s,i) => Math.abs(s.page)%processes.length === processes.indexOf(p)).length;
+    const pct = steps.length ? pages/steps.length*100 : 0;
+    return `<div class="process-row">
+      <div class="proc-color" style="background:${p.color}"></div>
+      <div class="proc-name">${p.id}</div>
+      <div class="proc-bar-wrap"><div class="proc-bar" style="width:${pct}%;background:${p.color}"></div></div>
+      <div style="font-size:0.7rem;color:var(--muted);min-width:50px;text-align:right">${pages} refs</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================
+// RESET
+// ============================
+function resetAll(doNotify = true) {
+  if (isRunning) toggleAutoRun();
+  simState = null;
+  currentStep = -1;
+  pageTableData = {};
+  tlbData = [];
+
+  document.getElementById('mem-grid').innerHTML = '';
+  document.getElementById('ref-track').innerHTML = '';
+  document.getElementById('step-log').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">◫</div>
+      <div class="empty-title">No Events Yet</div>
+      <div class="empty-sub">Initialize and step through the simulation</div>
+    </div>`;
+  document.getElementById('pt-body').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">Initialize simulation to view page table</td></tr>';
+  document.getElementById('tlb-body').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">TLB empty</td></tr>';
+
+  ['btn-prev','btn-next','btn-run','btn-end'].forEach(id => document.getElementById(id).disabled = true);
+  updateStats(0,0,0);
+}
+
+// ============================
+// INIT
+// ============================
+renderProcessSidebar();
+renderSegmentSidebar();
+</script>
+</body>
+</html>
