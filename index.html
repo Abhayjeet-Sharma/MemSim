@@ -1092,7 +1092,7 @@
 
 <script>
 // ============================
-// STATE
+// STATE (Global Variables)
 // ============================
 let mode = 'paging';
 let algo = 'FIFO';
@@ -1115,7 +1115,7 @@ const algoDescs = {
 };
 
 // ============================
-// UI HELPERS
+// UI HELPERS (User Interface Control Functions)
 // ============================
 function switchMode(m) {
   mode = m;
@@ -1168,7 +1168,7 @@ function renderProcessSidebar() {
       ${processes.length > 1 ? `<button onclick="removeProcess(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.8rem">×</button>` : ''}
     </div>
   `).join('');
-  // Update addr proc select
+  // Update process dropdown for address translation section
   const sel = document.getElementById('vaddr-proc');
   sel.innerHTML = processes.map(p => `<option>${p.id}</option>`).join('');
 }
