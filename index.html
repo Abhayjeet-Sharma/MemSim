@@ -35,7 +35,7 @@
     overflow-x: hidden;
   }
 
-  /* Scanline effect */
+  /*Scanline effect*/
   body::before {
     content: '';
     position: fixed;
@@ -354,6 +354,7 @@
   .viz-content::-webkit-scrollbar-thumb { background: var(--border); }
 
   /* PHYSICAL MEMORY GRID */
+  /*Physical Memory Grid*/
   .memory-header {
     display: flex;
     align-items: center;
@@ -400,7 +401,7 @@
     position: relative;
     overflow: hidden;
   }
-
+/*memory-frames*/
   .mem-frame::before {
     content: '';
     position: absolute;
@@ -1092,7 +1093,7 @@
 
 <script>
 // ============================
-// STATE (Global Variables)
+// STATE
 // ============================
 let mode = 'paging';
 let algo = 'FIFO';
@@ -1115,7 +1116,7 @@ const algoDescs = {
 };
 
 // ============================
-// UI HELPERS (User Interface Control Functions)
+// UI HELPERS
 // ============================
 function switchMode(m) {
   mode = m;
@@ -1168,7 +1169,7 @@ function renderProcessSidebar() {
       ${processes.length > 1 ? `<button onclick="removeProcess(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.8rem">×</button>` : ''}
     </div>
   `).join('');
-  // Update process dropdown for address translation section
+  // Update addr proc select
   const sel = document.getElementById('vaddr-proc');
   sel.innerHTML = processes.map(p => `<option>${p.id}</option>`).join('');
 }
